@@ -8,7 +8,7 @@
            closed:[{code,text}], help?}
    Commands are the normal text-mode commands; the global button sends them as ONE chat message. */
 (function () {
-  var VERSION = "1.0.0";
+  var VERSION = "1.0.1";
   var CSS = [
     ".izc{font-family:var(--font-sans);color:var(--text-primary);font-size:15px;line-height:1.55}",
     ".izc *{box-sizing:border-box}",
@@ -16,7 +16,9 @@
     ".izc-title{font-size:18px;font-weight:500;margin:0}",
     ".izc-cap{font-size:13px;color:var(--text-secondary);margin:0 0 12px}",
     ".izc-card{background:var(--surface-2);border:0.5px solid var(--border);border-radius:12px;padding:14px 16px;margin:0 0 10px}",
-    ".izc-card.izc-picked{border-color:var(--border-accent)}",
+    ".izc-card.izc-picked{border-color:var(--fill-accent);border-width:1.5px}",
+    ".izc-prev{font-size:13px;margin:12px 0 0;padding:8px 12px;background:var(--surface-1);border-radius:var(--radius);white-space:pre-wrap;font-family:var(--font-mono);color:var(--text-primary)}",
+    ".izc-prev.empty{color:var(--text-muted);font-family:var(--font-sans)}",
     ".izc-top{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}",
     ".izc-code{font-family:var(--font-mono);font-size:13px;color:var(--text-secondary)}",
     ".izc-lab{font-size:12px;padding:1px 8px;border-radius:var(--radius);background:var(--bg-neutral,var(--surface-1));color:var(--text-secondary)}",
@@ -64,6 +66,14 @@
     if (l.indexOf("action") === 0) return "action";
     return "";
   }
+  function setOn(b, on) {
+    if (!b._label) b._label = b.textContent;
+    b.textContent = (on ? "\u2713 " : "") + b._label;
+    b.style.background = on ? "var(--fill-accent)" : "";
+    b.style.color = on ? "var(--on-accent)" : "";
+    b.style.borderColor = on ? "var(--fill-accent)" : "";
+    b.setAttribute("aria-pressed", on ? "true" : "false");
+  }
   function bare(code) { return String(code).replace(/^#/, ""); }
 
   function defaultActions(c) {
@@ -99,6 +109,7 @@
     }
 
     var state = [];
+    var preview = function () {};
 
     if (data.fyi && data.fyi.items && data.fyi.items.length) {
       var f = el("div", "izc-card izc-fyi");
@@ -115,22 +126,22 @@
         if (it.propose) {
           li.appendChild(el("span", "izc-prop", " → " + it.propose + " "));
           var yb = el("button", null, "Yes " + it.code); yb.style.cssText = "font-size:12px;min-height:28px;padding:0 8px;margin-left:4px";
-          yb.onclick = function () { fyiState.yes[it.code] = !fyiState.yes[it.code]; yb.className = fyiState.yes[it.code] ? "on" : ""; mark(); };
+          yb.onclick = function () { fyiState.yes[it.code] = !fyiState.yes[it.code]; setOn(yb, !!fyiState.yes[it.code]); mark(); };
           li.appendChild(yb);
         }
         var kb = el("button", null, "Keep"); kb.title = "Keep open (seen except)"; kb.style.cssText = "font-size:12px;min-height:28px;padding:0 8px;margin-left:4px";
-        kb.onclick = function () { fyiState.except[it.code] = !fyiState.except[it.code]; kb.className = fyiState.except[it.code] ? "on" : ""; mark(); };
+        kb.onclick = function () { fyiState.except[it.code] = !fyiState.except[it.code]; setOn(kb, !!fyiState.except[it.code]); mark(); };
         li.appendChild(kb);
         fl.appendChild(li);
       });
       f.appendChild(fl);
       var fa = el("div", "izc-acts");
       var seen = el("button", null, "Seen");
-      seen.onclick = function () { fyiState.choice = fyiState.choice ? null : "seen"; seen.className = fyiState.choice ? "on" : ""; mark(); };
+      seen.onclick = function () { fyiState.choice = fyiState.choice ? null : "seen"; setOn(seen, !!fyiState.choice); mark(); };
       fa.appendChild(seen); f.appendChild(fa);
       var fta = el("textarea"); fta.placeholder = "Answer to an FYI, e.g. F2: remind me in Booking"; fta.rows = 1; fta.oninput = mark;
       fyiState.ta = fta; f.appendChild(fta);
-      function mark() { f.className = "izc-card izc-fyi" + (fyiCmd(fyiState) ? " izc-picked" : ""); }
+      function mark() { f.className = "izc-card izc-fyi" + (fyiCmd(fyiState) ? " izc-picked" : ""); preview(); }
       state.push(fyiState);
       wrap.appendChild(f);
     }
@@ -173,8 +184,8 @@
         var b = el("button", null, a[0]);
         b.onclick = function () {
           s.cmd = (s.cmd === a[1]) ? null : a[1];
-          btns.forEach(function (x) { x.className = ""; });
-          if (s.cmd) b.className = "on";
+          btns.forEach(function (x) { setOn(x, false); });
+          if (s.cmd) setOn(b, true);
           if (s.cmd && s.cmd.indexOf("{text}") >= 0) s.ta.focus();
           paint();
         };
@@ -184,11 +195,15 @@
       var ta = el("textarea"); ta.rows = 1;
       ta.placeholder = /^#/.test(c.code) ? "Answer or edit instruction" : "Your answer";
       ta.oninput = paint; s.ta = ta; card.appendChild(ta);
-      function paint() { card.className = "izc-card" + (cardCmd(s) ? " izc-picked" : ""); }
+      function paint() { card.className = "izc-card" + (cardCmd(s) ? " izc-picked" : ""); preview(); }
       state.push(s);
       wrap.appendChild(card);
     });
 
+    var prev = el("div", "izc-prev empty", "Nothing picked yet");
+    wrap.appendChild(prev);
+    function collect() { var lines = []; state.forEach(function (s) { var c = s.kind === "fyi" ? fyiCmd(s) : cardCmd(s); if (c) lines.push(c); }); return lines; }
+    preview = function () { var l = collect(); prev.className = "izc-prev" + (l.length ? "" : " empty"); prev.textContent = l.length ? "Will send:\n" + l.join("\n") : "Nothing picked yet"; };
     var bar = el("div", "izc-bar");
     var go = el("button", "go", "Send answers ↗");
     var out = el("span", "izc-out");
@@ -197,8 +212,7 @@
     if (data.help !== false) wrap.appendChild(el("p", "izc-help", data.help || "Pick a button and/or type, on as many cards as you like, then send once. Cards you leave alone stay open."));
 
     go.onclick = function () {
-      var lines = [];
-      state.forEach(function (s) { var c = s.kind === "fyi" ? fyiCmd(s) : cardCmd(s); if (c) lines.push(c); });
+      var lines = collect();
       if (!lines.length) { err.textContent = "Answer at least one card first"; return; }
       err.textContent = "";
       var msg = lines.join("\n");
