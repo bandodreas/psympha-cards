@@ -8,7 +8,7 @@
            closed:[{code,text}], help?}
    Commands are the normal text-mode commands; the global button sends them as ONE chat message. */
 (function () {
-  var VERSION = "1.0.1";
+  var VERSION = "1.0.2";
   var CSS = [
     ".izc{font-family:var(--font-sans);color:var(--text-primary);font-size:15px;line-height:1.55}",
     ".izc *{box-sizing:border-box}",
@@ -38,7 +38,7 @@
     ".izc-acts{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 0}",
     ".izc-acts button{font-size:13px;min-height:34px;padding:0 12px}",
     ".izc-acts button.on{background:var(--bg-accent);color:var(--text-accent);border-color:var(--border-accent)}",
-    ".izc textarea{width:100%;min-height:38px;margin:8px 0 0;font:inherit;font-size:14px;padding:7px 10px;border:0.5px solid var(--border-strong);border-radius:var(--radius);background:var(--fill-field,transparent);color:var(--text-primary);resize:vertical}",
+    ".izc textarea{width:100%;min-height:84px;margin:8px 0 0;font:inherit;font-size:14px;padding:7px 10px;border:0.5px solid var(--border-strong);border-radius:var(--radius);background:var(--fill-field,transparent);color:var(--text-primary);resize:vertical}",
     ".izc-fyi li{margin:0 0 6px}",
     ".izc-fyi ul{margin:8px 0 0;padding-left:18px}",
     ".izc-prop{color:var(--text-secondary)}",
@@ -139,7 +139,7 @@
       var seen = el("button", null, "Seen");
       seen.onclick = function () { fyiState.choice = fyiState.choice ? null : "seen"; setOn(seen, !!fyiState.choice); mark(); };
       fa.appendChild(seen); f.appendChild(fa);
-      var fta = el("textarea"); fta.placeholder = "Answer to an FYI, e.g. F2: remind me in Booking"; fta.rows = 1; fta.oninput = mark;
+      var fta = el("textarea"); fta.placeholder = "Answer to an FYI, e.g. F2: remind me in Booking"; fta.rows = 3; fta.oninput = mark;
       fyiState.ta = fta; f.appendChild(fta);
       function mark() { f.className = "izc-card izc-fyi" + (fyiCmd(fyiState) ? " izc-picked" : ""); preview(); }
       state.push(fyiState);
@@ -192,7 +192,7 @@
         btns.push(b); ab.appendChild(b);
       });
       card.appendChild(ab);
-      var ta = el("textarea"); ta.rows = 1;
+      var ta = el("textarea"); ta.rows = 3;
       ta.placeholder = /^#/.test(c.code) ? "Answer or edit instruction" : "Your answer";
       ta.oninput = paint; s.ta = ta; card.appendChild(ta);
       function paint() { card.className = "izc-card" + (cardCmd(s) ? " izc-picked" : ""); preview(); }
