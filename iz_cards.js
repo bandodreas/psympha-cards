@@ -6,9 +6,12 @@
            cards:[{code, label, title, meta?, context?, body?, draft?:{to,cc,subject,text,files?},
                    thread?:[{who,when,text}], options?:[str], reply?, actions?:[[label,cmd]], text_cmd?}],
            closed:[{code,text}], help?}
-   Commands are the normal text-mode commands; the global button sends them as ONE chat message. */
+   Commands are the normal text-mode commands; the global button sends them as ONE chat message.
+   Drafts (typed text + picked buttons) autosave to localStorage per card (key: title + code + card title),
+   come back when the widget is redrawn (e.g. after visiting another chat), are cleared on Send and
+   expire after 3 days. Storage may be blocked in some clients - then cards behave as before. */
 (function () {
-  var VERSION = "1.0.2";
+  var VERSION = "1.1.0";
   var CSS = [
     ".izc{font-family:var(--font-sans);color:var(--text-primary);font-size:15px;line-height:1.55}",
     ".izc *{box-sizing:border-box}",
@@ -74,6 +77,13 @@
     b.style.borderColor = on ? "var(--fill-accent)" : "";
     b.setAttribute("aria-pressed", on ? "true" : "false");
   }
+  var STORE_DAYS = 3;
+  function hashStr(t) { var h = 0; t = String(t || ""); for (var i = 0; i < t.length; i++) { h = ((h << 5) - h + t.charCodeAt(i)) | 0; } return (h >>> 0).toString(36); }
+  function ls() { try { var x = window.localStorage; x.setItem("izc:t", "1"); x.removeItem("izc:t"); return x; } catch (e) { return null; } }
+  function sGet(k) { var x = ls(); if (!x) return null; try { var v = JSON.parse(x.getItem(k) || "null"); if (v && v.ts && Date.now() - v.ts > STORE_DAYS * 864e5) { x.removeItem(k); return null; } return v; } catch (e) { return null; } }
+  function sSet(k, v) { var x = ls(); if (!x) return; try { v.ts = Date.now(); x.setItem(k, JSON.stringify(v)); } catch (e) {} }
+  function sDel(k) { var x = ls(); if (!x) return; try { x.removeItem(k); } catch (e) {} }
+  function sPrune() { var x = ls(); if (!x) return; try { for (var i = x.length - 1; i >= 0; i--) { var k = x.key(i); if (k && k.indexOf("izc:") === 0) sGet(k); } } catch (e) {} }
   function bare(code) { return String(code).replace(/^#/, ""); }
 
   function defaultActions(c) {
@@ -89,6 +99,8 @@
     if (typeof root === "string") root = document.getElementById(root);
     data = data || {};
     root.innerHTML = "";
+    sPrune();
+    var kp = "izc:" + hashStr(data.title || "Inbox zero") + ":";
     if (!document.getElementById("izc-style")) {
       var st = document.createElement("style"); st.id = "izc-style"; st.textContent = CSS; document.head.appendChild(st);
     }
@@ -118,7 +130,10 @@
       top.appendChild(el("span", "izc-t", data.fyi.heading || ("FYIs (" + data.fyi.items.length + ")")));
       f.appendChild(top);
       var fl = el("ul");
-      var fyiState = { kind: "fyi", choice: null, yes: {}, except: {}, ta: null, card: f };
+      var fyiState = { kind: "fyi", choice: null, yes: {}, except: {}, ta: null, card: f,
+        key: kp + "fyi:" + hashStr(data.fyi.items.map(function (x) { return x.code + x.text; }).join("|")) };
+      var fsv = sGet(fyiState.key) || {};
+      var fyiBtns = [];
       data.fyi.items.forEach(function (it) {
         var li = el("li");
         li.appendChild(el("span", "izc-code", it.code + " "));
@@ -127,10 +142,12 @@
           li.appendChild(el("span", "izc-prop", " → " + it.propose + " "));
           var yb = el("button", null, "Yes " + it.code); yb.style.cssText = "font-size:12px;min-height:28px;padding:0 8px;margin-left:4px";
           yb.onclick = function () { fyiState.yes[it.code] = !fyiState.yes[it.code]; setOn(yb, !!fyiState.yes[it.code]); mark(); };
+          if (fsv.yes && fsv.yes[it.code]) fyiBtns.push(function () { fyiState.yes[it.code] = true; setOn(yb, true); });
           li.appendChild(yb);
         }
         var kb = el("button", null, "Keep"); kb.title = "Keep open (seen except)"; kb.style.cssText = "font-size:12px;min-height:28px;padding:0 8px;margin-left:4px";
         kb.onclick = function () { fyiState.except[it.code] = !fyiState.except[it.code]; setOn(kb, !!fyiState.except[it.code]); mark(); };
+        if (fsv.except && fsv.except[it.code]) fyiBtns.push(function () { fyiState.except[it.code] = true; setOn(kb, true); });
         li.appendChild(kb);
         fl.appendChild(li);
       });
@@ -141,14 +158,23 @@
       fa.appendChild(seen); f.appendChild(fa);
       var fta = el("textarea"); fta.placeholder = "Answer to an FYI, e.g. F2: remind me in Booking"; fta.rows = 3; fta.oninput = mark;
       fyiState.ta = fta; f.appendChild(fta);
-      function mark() { f.className = "izc-card izc-fyi" + (fyiCmd(fyiState) ? " izc-picked" : ""); preview(); }
+      function mark() {
+        f.className = "izc-card izc-fyi" + (fyiCmd(fyiState) ? " izc-picked" : "");
+        if (fyiCmd(fyiState)) sSet(fyiState.key, { t: fta.value, choice: fyiState.choice, yes: fyiState.yes, except: fyiState.except }); else sDel(fyiState.key);
+        preview();
+      }
+      if (fsv.t) fta.value = fsv.t;
+      if (fsv.choice === "seen") { fyiState.choice = "seen"; setOn(seen, true); }
+      fyiBtns.forEach(function (fn) { fn(); });
+      f.className = "izc-card izc-fyi" + (fyiCmd(fyiState) ? " izc-picked" : "");
       state.push(fyiState);
       wrap.appendChild(f);
     }
 
     (data.cards || []).forEach(function (c) {
       var card = el("div", "izc-card");
-      var s = { kind: "card", code: c.code, cmd: null, ta: null, card: card, textCmd: c.text_cmd };
+      var s = { kind: "card", code: c.code, cmd: null, ta: null, card: card, textCmd: c.text_cmd,
+        key: kp + c.code + ":" + hashStr((c.title || "") + "|" + (c.draft && c.draft.subject || "")) };
       var top = el("div", "izc-top");
       top.appendChild(el("span", "izc-code", c.code));
       if (c.label) top.appendChild(el("span", "izc-lab " + labClass(c.label), c.label));
@@ -195,7 +221,17 @@
       var ta = el("textarea"); ta.rows = 3;
       ta.placeholder = /^#/.test(c.code) ? "Answer or edit instruction" : "Your answer";
       ta.oninput = paint; s.ta = ta; card.appendChild(ta);
-      function paint() { card.className = "izc-card" + (cardCmd(s) ? " izc-picked" : ""); preview(); }
+      function paint() {
+        card.className = "izc-card" + (cardCmd(s) ? " izc-picked" : "");
+        if (s.cmd || ta.value.trim()) sSet(s.key, { t: ta.value, c: s.cmd }); else sDel(s.key);
+        preview();
+      }
+      var sv = sGet(s.key);
+      if (sv) {
+        if (sv.t) ta.value = sv.t;
+        if (sv.c) { for (var i = 0; i < acts.length; i++) { if (acts[i][1] === sv.c) { s.cmd = sv.c; setOn(btns[i], true); } } }
+        card.className = "izc-card" + (cardCmd(s) ? " izc-picked" : "");
+      }
       state.push(s);
       wrap.appendChild(card);
     });
@@ -204,12 +240,13 @@
     wrap.appendChild(prev);
     function collect() { var lines = []; state.forEach(function (s) { var c = s.kind === "fyi" ? fyiCmd(s) : cardCmd(s); if (c) lines.push(c); }); return lines; }
     preview = function () { var l = collect(); prev.className = "izc-prev" + (l.length ? "" : " empty"); prev.textContent = l.length ? "Will send:\n" + l.join("\n") : "Nothing picked yet"; };
+    preview();
     var bar = el("div", "izc-bar");
     var go = el("button", "go", "Send answers ↗");
     var out = el("span", "izc-out");
     var err = el("span", "izc-err");
     bar.appendChild(go); bar.appendChild(err); wrap.appendChild(bar); wrap.appendChild(out);
-    if (data.help !== false) wrap.appendChild(el("p", "izc-help", data.help || "Pick a button and/or type, on as many cards as you like, then send once. Cards you leave alone stay open."));
+    if (data.help !== false) wrap.appendChild(el("p", "izc-help", data.help || ("Pick a button and/or type, on as many cards as you like, then send once. Cards you leave alone stay open." + (ls() ? " What you type is kept on this device until you send." : ""))));
 
     go.onclick = function () {
       var lines = collect();
@@ -218,6 +255,7 @@
       var msg = lines.join("\n");
       if (typeof sendPrompt === "function") {
         sendPrompt(msg);
+        state.forEach(function (s) { sDel(s.key); });
         go.textContent = "Sent – waiting for Claude"; go.disabled = true;
         state.forEach(function (s) { s.card.style.opacity = "0.6"; });
       } else {
